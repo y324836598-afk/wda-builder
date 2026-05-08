@@ -50,6 +50,20 @@ jobs:
           fi
           echo "Found: $APP_PATH"
           echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
+
+      - name: Strip dSYM debug symbols and clean bundle
+        working-directory: WebDriverAgent
+        run: |
+          set -e
+          APP_PATH="${{ steps.find_app.outputs.app_path }}"
+          echo "Removing .dSYM folders inside app bundle..."
+          find "$APP_PATH" -type d -name "*.dSYM" -exec rm -rf {} + 2>/dev/null || true
+          echo "Removing .swiftmodule (debug only)..."
+          find "$APP_PATH" -type d -name "*.swiftmodule" -exec rm -rf {} + 2>/dev/null || true
+          echo "Result PlugIns:"
+          ls -la "$APP_PATH/PlugIns/" || true
+          echo "Bundle size:"
+          du -sh "$APP_PATH"
           ls -la "$APP_PATH"
           echo "--- PlugIns ---"
           ls -la "$APP_PATH/PlugIns" 2>/dev/null || echo "no PlugIns dir"
