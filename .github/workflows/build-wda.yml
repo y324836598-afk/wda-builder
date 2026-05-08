@@ -70,18 +70,41 @@ jobs:
         run: |
           set -e
           APP_PATH="${{ steps.find_app.outputs.app_path }}"
-          echo "Recursive ad-hoc sign of entire bundle..."
-          # --deep recurses through all nested bundles (frameworks + xctest)
-          # -s - means ad-hoc identity (no cert needed)
-          # --force overrides any existing signature
-          codesign --force --deep --sign - "$APP_PATH"
 
-          echo "--- Verify _CodeSignature exists ---"
-          ls -la "$APP_PATH/_CodeSignature/" || echo "missing main"
-          ls -la "$APP_PATH/PlugIns/WebDriverAgentRunner.xctest/_CodeSignature/" || echo "missing xctest"
+          # Sign innermost first then outward (macOS codesign requirement)
 
-          echo "--- Verify with codesign -dvvv (xctest binary) ---"
-          codesign -dvvv "$APP_PATH/PlugIns/WebDriverAgentRunner.xctest/WebDriverAgentRunner" 2>&1 | head -10 || true
+          # 1. .xctest internal frameworks
+          for fw in "$APP_PATH/PlugIns/WebDriverAgentRunner.xctest/Frameworks/"*.framework; do
+            if [ -d "$fw" ]; then
+              echo "Signing $fw"
+              codesign --force --sign - "$fw"
+            fi
+          done
+
+          # 2. .xctest bundle itself (this is what --deep skips)
+          echo "Signing .xctest bundle"
+          codesign --force --sign - "$APP_PATH/PlugIns/WebDriverAgentRunner.xctest"
+
+          # 3. App-level frameworks (not in PlugIns)
+          for fw in "$APP_PATH/Frameworks/"*.framework; do
+            if [ -d "$fw" ]; then
+              echo "Signing app framework $fw"
+              codesign --force --sign - "$fw"
+            fi
+          done
+
+          # 4. Main app bundle (--deep is OK here, but already signed inner)
+          echo "Signing main app"
+          codesign --force --sign - "$APP_PATH"
+
+          echo "--- Verify all _CodeSignature folders ---"
+          find "$APP_PATH" -name "_CodeSignature" -type d | head -20
+
+          echo "--- Verify .xctest binary signed ---"
+          codesign -dvvv "$APP_PATH/PlugIns/WebDriverAgentRunner.xctest/WebDriverAgentRunner" 2>&1 | head -10 || echo "verify failed"
+
+          echo "--- Verify .xctest bundle signed ---"
+          codesign -dvvv "$APP_PATH/PlugIns/WebDriverAgentRunner.xctest" 2>&1 | head -10 || echo "verify failed"
           ls -la "$APP_PATH"
           echo "--- PlugIns ---"
           ls -la "$APP_PATH/PlugIns" 2>/dev/null || echo "no PlugIns dir"
