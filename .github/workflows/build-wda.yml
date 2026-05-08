@@ -64,6 +64,24 @@ jobs:
           ls -la "$APP_PATH/PlugIns/" || true
           echo "Bundle size:"
           du -sh "$APP_PATH"
+
+      - name: Ad-hoc sign all nested binaries (so iOS accepts cdhash)
+        working-directory: WebDriverAgent
+        run: |
+          set -e
+          APP_PATH="${{ steps.find_app.outputs.app_path }}"
+          echo "Recursive ad-hoc sign of entire bundle..."
+          # --deep recurses through all nested bundles (frameworks + xctest)
+          # -s - means ad-hoc identity (no cert needed)
+          # --force overrides any existing signature
+          codesign --force --deep --sign - "$APP_PATH"
+
+          echo "--- Verify _CodeSignature exists ---"
+          ls -la "$APP_PATH/_CodeSignature/" || echo "missing main"
+          ls -la "$APP_PATH/PlugIns/WebDriverAgentRunner.xctest/_CodeSignature/" || echo "missing xctest"
+
+          echo "--- Verify with codesign -dvvv (xctest binary) ---"
+          codesign -dvvv "$APP_PATH/PlugIns/WebDriverAgentRunner.xctest/WebDriverAgentRunner" 2>&1 | head -10 || true
           ls -la "$APP_PATH"
           echo "--- PlugIns ---"
           ls -la "$APP_PATH/PlugIns" 2>/dev/null || echo "no PlugIns dir"
