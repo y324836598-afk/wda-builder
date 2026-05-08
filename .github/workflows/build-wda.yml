@@ -1,0 +1,74 @@
+name: Build WebDriverAgent IPA (unsigned)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout WebDriverAgent
+        uses: actions/checkout@v4
+        with:
+          repository: appium/WebDriverAgent
+          ref: master
+          path: WebDriverAgent
+
+      - name: List Xcode version
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-path --sdk iphoneos
+
+      - name: Build WDA for iOS device (no codesign)
+        working-directory: WebDriverAgent
+        run: |
+          set -e
+          xcodebuild build-for-testing \
+            -project WebDriverAgent.xcodeproj \
+            -scheme WebDriverAgentRunner \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath ./build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO
+          echo "--- Build artifacts ---"
+          find ./build -name "*.app" -type d | head -20
+
+      - name: Find WDA Runner .app
+        id: find_app
+        working-directory: WebDriverAgent
+        run: |
+          APP_PATH=$(find ./build -name "WebDriverAgentRunner-Runner.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: WebDriverAgentRunner-Runner.app not found"
+            find ./build -type d | head -50
+            exit 1
+          fi
+          echo "Found: $APP_PATH"
+          echo "app_path=$APP_PATH" >> $GITHUB_OUTPUT
+          ls -la "$APP_PATH"
+          echo "--- PlugIns ---"
+          ls -la "$APP_PATH/PlugIns" 2>/dev/null || echo "no PlugIns dir"
+
+      - name: Package as IPA
+        working-directory: WebDriverAgent
+        run: |
+          set -e
+          rm -rf Payload
+          mkdir -p Payload
+          cp -r "${{ steps.find_app.outputs.app_path }}" Payload/
+          zip -qr WebDriverAgentRunner.ipa Payload
+          echo "--- IPA info ---"
+          ls -la WebDriverAgentRunner.ipa
+          unzip -l WebDriverAgentRunner.ipa | head -30
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WebDriverAgentRunner-unsigned-ipa
+          path: WebDriverAgent/WebDriverAgentRunner.ipa
+          retention-days: 30
